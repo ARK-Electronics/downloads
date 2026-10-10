@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>$title · ARK Electronics downloads</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root {
+  --bg: #f4f5f4; --card: #ffffff; --text: #262826; --muted: #6a6e6a; --border: #e2e4e2;
+  --hover: #f3f8f4; --accent: #00bb31; --link: #00852a; --logo-grey: #595959;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111311; --card: #191c19; --text: #e6e8e6; --muted: #9aa09a; --border: #2a2e2a;
+    --hover: #1f251f; --link: #2fd35a; --logo-grey: #d0d2d0;
+  }
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); color: var(--text); font: 15px/1.5 "IBM Plex Sans", system-ui, sans-serif; }
+body { margin: 0; }
+a { color: inherit; text-decoration: none; }
+.mono { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+header { border-bottom: 3px solid var(--accent); background: var(--card); }
+.bar { max-width: 56rem; margin: 0 auto; padding: .9rem 1rem; display: flex; align-items: center; gap: .9rem; }
+.logo { height: 26px; width: auto; display: block; }
+.logo .grey { fill: var(--logo-grey); }
+.logo .green { fill: var(--accent); }
+.site { font-weight: 500; color: var(--muted); padding-left: .9rem; border-left: 1px solid var(--border); }
+main { max-width: 56rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+.crumbs { font-size: .875rem; color: var(--muted); display: flex; flex-wrap: wrap; gap: .35rem; }
+.crumbs a { color: var(--link); }
+.crumbs a:hover { text-decoration: underline; }
+h1 { font-size: 1.6rem; font-weight: 600; margin: .25rem 0 1.25rem; word-break: break-word; }
+.list { list-style: none; margin: 0; padding: 0; background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: .25rem 1.25rem; padding: .7rem 1rem; border-top: 1px solid var(--border); }
+.row:first-child { border-top: 0; }
+.row:hover { background: var(--hover); }
+.name { display: flex; align-items: center; gap: .65rem; min-width: 0; font-weight: 500; }
+.name:hover .label { color: var(--link); }
+.label { overflow-wrap: anywhere; }
+.icon { width: 20px; height: 20px; flex: none; color: var(--muted); }
+.dir .icon { color: var(--accent); }
+.desc { display: block; font-size: .85rem; font-weight: 400; color: var(--muted); }
+.pill { font-size: .75rem; font-weight: 500; padding: .05rem .5rem; border-radius: 999px; background: var(--accent); color: #fff; white-space: nowrap; }
+.meta { font-size: .85rem; color: var(--muted); white-space: nowrap; text-align: right; }
+.size { min-width: 5.5rem; }
+.sha { grid-column: 1 / -1; display: flex; align-items: center; gap: .5rem; padding-left: calc(20px + .65rem); font-size: .78rem; color: var(--muted); }
+.sha button { font: inherit; color: var(--link); background: none; border: 1px solid var(--border); border-radius: 6px; padding: .05rem .5rem; cursor: pointer; }
+.sha button:hover { border-color: var(--link); }
+.empty { padding: 1.5rem 1rem; color: var(--muted); }
+footer { max-width: 56rem; margin: 0 auto; padding: 0 1rem 2rem; font-size: .85rem; color: var(--muted); display: flex; flex-wrap: wrap; gap: .4rem 1.25rem; }
+footer a { color: var(--link); }
+@media (max-width: 560px) {
+  .row { grid-template-columns: minmax(0, 1fr) auto; }
+  .date { display: none; }
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-dir" viewBox="0 0 24 24"><path fill="currentColor" d="M3 6.5A2.5 2.5 0 0 1 5.5 4h4.1c.7 0 1.3.3 1.8.8L12.9 6.3H18.5A2.5 2.5 0 0 1 21 8.8v8.7a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" d="M6.5 3h7.4L19 8.1v11.4c0 .8-.7 1.5-1.5 1.5h-11c-.8 0-1.5-.7-1.5-1.5v-15C5 3.7 5.7 3 6.5 3z M13.5 3v5.5H19 M12 11v6 M9.5 14.5 12 17l2.5-2.5"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M10 7 5 12l5 5 M5 12h9a5 5 0 0 1 5 5v1"/></symbol>
+</svg>
+<header><div class="bar">
+  <a href="/" aria-label="ARK Electronics downloads home"><svg class="logo" viewBox="0 0 594 198" role="img" aria-label="ARK">
+    <polygon class="grey" points="197.72 0 197.72 197.72 148.29 197.72 148.29 49.44 0 197.72 0 127.82 127.82 0 197.72 0"/>
+    <path class="green" d="M395.45,197.72h-52.43l-73.7-73.71,44.75-44.75c9.65-9.66,9.65-25.3,0-34.95-4.63-4.63-10.92-7.24-17.48-7.24h-61.79L197.72,0h98.86c16.39,0,32.1,6.51,43.7,18.09,24.12,24.13,24.12,63.25,0,87.39l-18.54,18.54,73.71,73.71Z"/>
+    <polygon class="grey" points="593.17 153.17 593.17 197.72 444.88 98.86 593.17 0 593.17 44.56 511.71 98.86 593.17 153.17"/>
+    <polygon class="grey" points="444.88 98.86 444.88 197.72 395.45 197.72 395.45 0 444.88 0 444.88 98.86"/>
+  </svg></a>
+  <span class="site">Downloads</span>
+</div></header>
+<main>
+<nav class="crumbs" aria-label="Path">$crumbs</nav>
+<h1>$heading</h1>
+<ul class="list">
+$rows
+</ul>
+</main>
+<footer>
+  <span>ARK Electronics</span>
+  <a href="https://docs.arkelectron.com">Documentation</a>
+  <a href="https://arkelectron.com">Store</a>
+  <a href="/manifest.json">manifest.json</a>
+</footer>
+<script>
+document.addEventListener('click', function (e) {
+  var b = e.target.closest('button[data-sha]');
+  if (!b) return;
+  navigator.clipboard.writeText(b.dataset.sha).then(function () {
+    b.textContent = 'Copied';
+    setTimeout(function () { b.textContent = 'Copy'; }, 1200);
+  });
+});
+</script>
+</body>
+</html>
