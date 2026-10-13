@@ -11,7 +11,7 @@ Tooling for https://downloads.arkelectron.com, an S3 bucket behind CloudFront.
 | `manifest.json` | Every file listed in a `SHA256SUMS`, with its sha256 and size | 60 s |
 | `.../index.html` | Generated folder pages from `page.html`; `aws/dir-index.js` serves them for `<dir>/` | 60 s |
 
-Folders: `firmware/` (private_px4), `jetson/` (ark_jetson_kernel).
+Folders: `firmware/` (private_px4), `jetson/` (ark_jetson_kernel), `pi/` (ark_pi_image), `dev/` (dev builds, below).
 
 ## Publishing from a workflow
 
@@ -50,3 +50,16 @@ jobs:
 3. Give the environment variables `AWS_ROLE_ARN` (printed by step 2) and `DOWNLOADS_BUCKET`.
 
 Locally, any credentials that can write the bucket run the same commands with `DOWNLOADS_BUCKET` set, e.g. to backfill releases.
+
+## Dev builds
+
+`dev/<folder>/<product>/<branch>-<sha8>/` holds builds shared by direct link, for our own testing or for a customer to try. The index pages and manifest skip `dev/`, and a lifecycle rule deletes it 90 days after upload. There are no folder pages under `dev/`, so share the file's URL.
+
+Publish one from a local build with any credentials that can write the bucket:
+
+```bash
+(cd <build dir> && sha256sum -- * > SHA256SUMS)
+DOWNLOADS_BUCKET=<bucket> AWS_REGION=us-west-1 ./downloads.py publish <build dir> dev/firmware/ark_g5-heading-gps/main-1a2b3c4d
+```
+
+The file is then at `https://downloads.arkelectron.com/dev/firmware/ark_g5-heading-gps/main-1a2b3c4d/<file>`.
