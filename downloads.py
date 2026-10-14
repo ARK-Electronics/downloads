@@ -38,7 +38,11 @@ TEMPLATE = Path(__file__).with_name("page.html")
 DESCRIPTIONS = {
     "firmware/": "PX4 firmware for ARK CAN nodes and flight controllers",
     "jetson/": "Flash packages for ARK Jetson carrier boards",
+    "pi/": "Golden images for ARK Raspberry Pi carrier boards",
 }
+
+# Builds shared by direct link for testing; kept off the index pages and manifest, and S3 deletes them after 90 days
+UNLISTED = "dev/"
 
 
 def bucket() -> str:
@@ -274,12 +278,15 @@ def build_site(objects: list[dict], sums: dict[str, dict[str, str]], badges: dic
 
 
 def index() -> None:
+    def listed() -> list[dict]:
+        return [o for o in list_objects() if not o["Key"].startswith(UNLISTED)]
+
     def content(objects: list[dict]) -> list[tuple[str, str]]:
         return sorted((o["Key"], o["ETag"]) for o in objects if not generated(o["Key"]))
 
     # A publish running at the same time can land after the listing; rebuild until the listing holds
     for _ in range(5):
-        objects = list_objects()
+        objects = listed()
         snapshot = content(objects)
         sources = [o for o in objects if not generated(o["Key"])]
         sums = {key[:-len(SUMS)]: parse_sums(get(key)) for key, _ in snapshot if posixpath.basename(key) == SUMS}
@@ -288,7 +295,7 @@ def index() -> None:
         for key, data in sorted(build_site(sources, sums, latest).items()):
             if etags.get(key) != hashlib.md5(data).hexdigest():
                 put(key, data, MUTABLE)
-        if content(list_objects()) == snapshot:
+        if content(listed()) == snapshot:
             return
     sys.exit("the bucket kept changing while indexing")
 
