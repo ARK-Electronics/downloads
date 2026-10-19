@@ -2,7 +2,9 @@
 """Publish release files to downloads.arkelectron.com.
 
 Usage: downloads.py publish DIR PREFIX [--exclude GLOB]...   upload DIR to PREFIX/, once
+       downloads.py release SRC DEST                          copy published folder SRC/ (a draft) to DEST/, once
        downloads.py promote SRC DEST                          copy release folder SRC/ to DEST/ under fixed names
+       downloads.py put FILE KEY                              upload one file that changes in place, e.g. a changelog
        downloads.py index                                     rewrite every folder's index.html and the root manifest.json
 
 DIR must hold a SHA256SUMS covering every file in it; --exclude leaves matching files
@@ -66,7 +68,8 @@ def get(key: str) -> bytes:
 
 
 def content_type(name: str) -> str:
-    if name in (SUMS, "VERSION"):
+    # Markdown as plain text, so a browser shows a changelog instead of downloading it
+    if name in (SUMS, "VERSION") or name.endswith(".md"):
         return "text/plain; charset=utf-8"
     if name.endswith(".html"):
         return "text/html; charset=utf-8"
@@ -143,6 +146,20 @@ def publish(src: Path, prefix: str, exclude: list[str]) -> None:
         copy(str(path), prefix + name, IMMUTABLE, create_only=True)
     # Last, so a folder with SHA256SUMS is complete
     put(prefix + SUMS, format_sums(sums), IMMUTABLE)
+
+
+def release(src: str, dest: str) -> None:
+    src, dest = folder(src), folder(dest)
+    if not list_objects(src + SUMS):
+        sys.exit(f"{src} is not published")
+    if list_objects(dest):
+        sys.exit(f"{dest} already exists; a published release is never replaced")
+
+    # SRC was verified on publish and never changes, so copy server side
+    sums = parse_sums(get(src + SUMS))
+    for name in sorted(sums):
+        copy(f"s3://{bucket()}/{src}{name}", dest + name, IMMUTABLE, create_only=True)
+    put(dest + SUMS, format_sums(sums), IMMUTABLE)
 
 
 def fixed_name(name: str) -> str:
@@ -307,15 +324,23 @@ def main() -> None:
     p.add_argument("dir", type=Path)
     p.add_argument("prefix")
     p.add_argument("--exclude", action="append", default=[])
-    p = sub.add_parser("promote")
-    p.add_argument("src")
-    p.add_argument("dest")
+    for name in ("release", "promote"):
+        p = sub.add_parser(name)
+        p.add_argument("src")
+        p.add_argument("dest")
+    p = sub.add_parser("put")
+    p.add_argument("file", type=Path)
+    p.add_argument("key")
     sub.add_parser("index")
     args = parser.parse_args()
     if args.command == "publish":
         publish(args.dir, args.prefix, args.exclude)
+    elif args.command == "release":
+        release(args.src, args.dest)
     elif args.command == "promote":
         promote(args.src, args.dest)
+    elif args.command == "put":
+        put(args.key, args.file.read_bytes(), MUTABLE)
     else:
         index()
 

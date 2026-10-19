@@ -6,8 +6,9 @@ Tooling for https://downloads.arkelectron.com, an S3 bucket behind CloudFront.
 
 | Path | Contents | Cached |
 |---|---|---|
-| `<folder>/<product>/<version>/` | A release's files and its `SHA256SUMS`. Written once, never replaced. | 1 year |
+| `<folder>/<product>/<version>/` | A release's files, its `CHANGELOG.md` and its `SHA256SUMS`. Written once, never replaced. | 1 year |
 | `<folder>/<product>/latest/` | The promoted release under fixed names, plus `VERSION` | 60 s |
+| `<folder>/<product>/CHANGELOG.md` | The product's release notes, every version, newest first | 60 s |
 | `manifest.json` | Every file listed in a `SHA256SUMS`, with its sha256 and size | 60 s |
 | `.../index.html` | Generated folder pages from `page.html`; `aws/dir-index.js` serves them for `<dir>/` | 60 s |
 
@@ -43,10 +44,29 @@ jobs:
 
 `publish` checks every file against the directory's `SHA256SUMS` and refuses a version that already exists. `--exclude '*.elf'` keeps files off the site.
 
+## Changelogs
+
+Every product release carries its notes twice: the version's own section as `CHANGELOG.md` in its version folder, listed in `SHA256SUMS` like any other file, and the product's whole history as `<folder>/<product>/CHANGELOG.md`, uploaded with `put` when the release is promoted. The product's GitBook release notes are a copy of the whole history. `.md` files are served as plain text so a browser shows them.
+
+## Drafts
+
+A release can be born a draft and promoted after validation without rebuilding:
+
+```bash
+downloads.py publish <dir> dev/<folder>/<product>/<version>               # the tag build
+downloads.py put VERSION dev/<folder>/<product>/draft/VERSION              # points at the newest draft
+downloads.py release dev/<folder>/<product>/<version> <folder>/<product>/<version>   # after validation
+downloads.py promote <folder>/<product>/<version> <folder>/<product>/latest
+downloads.py put CHANGELOG.md <folder>/<product>/CHANGELOG.md
+downloads.py index
+```
+
+`release` copies server side, so the promoted files are byte for byte the draft that was validated. A draft is unlisted like any dev build and expires 90 days after upload; `draft/VERSION` can name a version that is already promoted.
+
 ## Adding a repo
 
 1. In the repo's settings, create environment `downloads` and limit it to the release tags and `main`.
-2. With admin credentials: `aws/create_publish_role.sh <owner/repo> <folder> <bucket>`. The role trusts only that environment and writes only `<folder>/`, the index pages and the manifest.
+2. With admin credentials: `aws/create_publish_role.sh <owner/repo> <folder> <bucket>`. The role trusts only that environment and writes only `<folder>/`, `dev/<folder>/`, the index pages and the manifest. Rerun it to update an existing role's policy.
 3. Give the environment variables `AWS_ROLE_ARN` (printed by step 2) and `DOWNLOADS_BUCKET`.
 
 Locally, any credentials that can write the bucket run the same commands with `DOWNLOADS_BUCKET` set, e.g. to backfill releases.
