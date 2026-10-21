@@ -11,6 +11,7 @@ Tooling for https://downloads.arkelectron.com, an S3 bucket behind CloudFront.
 | `<folder>/<product>/CHANGELOG.md` | The product's release notes, every version, newest first | 60 s |
 | `manifest.json` | Every file listed in a `SHA256SUMS`, with its sha256 and size | 60 s |
 | `.../index.html` | Generated folder pages from `page.html`; `aws/dir-index.js` serves them for `<dir>/` | 60 s |
+| `.../<name>.html` | Each listed `<name>.md` rendered, generated with the folder pages, which link it in place of the `.md` | 60 s |
 
 Folders: `firmware/` (private_px4), `jetson/` (ark_jetson_kernel), `pi/` (ark_pi_image), `dev/` (dev builds, below).
 
@@ -46,7 +47,7 @@ jobs:
 
 ## Changelogs
 
-Every product release carries its notes twice: the version's own section as `CHANGELOG.md` in its version folder, listed in `SHA256SUMS` like any other file, and the product's whole history as `<folder>/<product>/CHANGELOG.md`, uploaded with `put` when the release is promoted. The product's GitBook release notes are a copy of the whole history. `.md` files are served as plain text so a browser shows them.
+Every product release carries its notes twice: the version's own section as `CHANGELOG.md` in its version folder, listed in `SHA256SUMS` like any other file, and the product's whole history as `<folder>/<product>/CHANGELOG.md`, uploaded with `put` when the release is promoted. The product's GitBook release notes are a copy of the whole history. `index` renders every listed `.md` to a `.html` beside it, which the folder pages open; the `.md` stays plain text and is the page's Download button. The renderer handles headings, lists, paragraphs, inline code, links (`http`, `https` and relative only) and bold, with no JavaScript; any other syntax shows as text. Every `.html` on the site is generated, so `publish` refuses one.
 
 ## Drafts
 
@@ -66,7 +67,7 @@ downloads.py index
 ## Adding a repo
 
 1. In the repo's settings, create environment `downloads` and limit it to the release tags and `main`.
-2. With admin credentials: `aws/create_publish_role.sh <owner/repo> <folder> <bucket>`. The role trusts only that environment and writes only `<folder>/`, `dev/<folder>/`, the index pages and the manifest. Rerun it to update an existing role's policy.
+2. With admin credentials: `aws/create_publish_role.sh <owner/repo> <folder> <bucket>`. The role trusts only that environment and writes only `<folder>/`, `dev/<folder>/`, the generated `.html` pages and the manifest. Rerun it to update an existing role's policy.
 3. Give the environment variables `AWS_ROLE_ARN` (printed by step 2) and `DOWNLOADS_BUCKET`.
 
 Locally, any credentials that can write the bucket run the same commands with `DOWNLOADS_BUCKET` set, e.g. to backfill releases.
