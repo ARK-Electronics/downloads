@@ -42,8 +42,7 @@ aws iam put-role-policy --role-name "$role" --policy-name publish --policy-docum
     {\"Effect\": \"Allow\", \"Action\": \"s3:PutObject\", \"Resource\": [
       \"arn:aws:s3:::$bucket/$folder/*\",
       \"arn:aws:s3:::$bucket/dev/$folder/*\",
-      \"arn:aws:s3:::$bucket/index.html\",
-      \"arn:aws:s3:::$bucket/*/index.html\",
+      \"arn:aws:s3:::$bucket/*.html\",
       \"arn:aws:s3:::$bucket/manifest.json\"]},
     {\"Effect\": \"Allow\", \"Action\": \"s3:DeleteObject\", \"Resource\": \"arn:aws:s3:::$bucket/$folder/*/latest/*\"}
   ]

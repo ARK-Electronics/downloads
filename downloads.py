@@ -5,7 +5,7 @@ Usage: downloads.py publish DIR PREFIX [--exclude GLOB]...   upload DIR to PREFI
        downloads.py release SRC DEST                          copy published folder SRC/ (a draft) to DEST/, once
        downloads.py promote SRC DEST                          copy release folder SRC/ to DEST/ under fixed names
        downloads.py put FILE KEY                              upload one file that changes in place, e.g. a changelog
-       downloads.py index                                     rewrite every folder's index.html and the root manifest.json
+       downloads.py index                                     rewrite the folder pages, each .md rendered beside it as .html, and the manifest
 
 DIR must hold a SHA256SUMS covering every file in it; --exclude leaves matching files
 and their lines out. promote writes a VERSION file holding SRC's last path segment.
@@ -27,6 +27,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from html import escape
 from pathlib import Path
@@ -138,6 +139,8 @@ def publish(src: Path, prefix: str, exclude: list[str]) -> None:
     files = {p.name: p for p in src.iterdir() if p.is_file() and p.name != SUMS and kept(p.name)}
     if set(files) != set(sums):
         sys.exit(f"{SUMS} lists {sorted(sums)}, files are {sorted(files)}")
+    if any(name.endswith(".html") for name in files):
+        sys.exit("index writes every .html on the site; publish the Markdown instead")
     for name, path in files.items():
         if sha256(path) != sums[name]:
             sys.exit(f"{name} does not match {SUMS}")
@@ -196,7 +199,12 @@ def promote(src: str, dest: str) -> None:
 
 
 def generated(key: str) -> bool:
-    return key == "manifest.json" or posixpath.basename(key) == "index.html"
+    # The folder pages and the rendered Markdown are every .html on the site
+    return key == "manifest.json" or key.endswith(".html")
+
+
+def rendered(key: str) -> str:
+    return key[:-len(".md")] + ".html"
 
 
 def natural(name: str) -> list:
@@ -223,15 +231,105 @@ def day(stamp: str) -> str:
     return datetime.fromisoformat(stamp).strftime("%Y-%m-%d") if stamp else ""
 
 
+INLINE = re.compile(r"(?P<tick>`+)(?P<code>.+?)(?P=tick)|\[(?P<label>[^\]]+)\]\((?P<url>[^)\s]+)\)|\*\*(?P<bold>.+?)\*\*")
+HEADING = re.compile(r"(#{1,6})\s+(.*?)(?:\s+#+)?\s*$")
+ITEM = re.compile(r"( *)([-*+]|[0-9]+[.)])\s+(.*)")
+
+
+def safe_url(url: str) -> bool:
+    # Printable ASCII only, so a browser strips nothing and reads the same scheme
+    scheme = re.match(r"[A-Za-z][A-Za-z0-9+.-]*:", url)
+    return all("!" <= c <= "~" for c in url) and (not scheme or scheme.group().lower() in ("http:", "https:"))
+
+
+def inline(text: str) -> str:
+    out, pos = [], 0
+    for m in INLINE.finditer(text):
+        out.append(escape(text[pos:m.start()]))
+        if m["code"] is not None:
+            out.append(f"<code>{escape(m['code'])}</code>")
+        elif m["label"] is not None:
+            label = inline(m["label"])
+            out.append(f'<a href="{escape(m["url"])}">{label}</a>' if safe_url(m["url"]) else label)
+        else:
+            out.append(f"<strong>{inline(m['bold'])}</strong>")
+        pos = m.end()
+    out.append(escape(text[pos:]))
+    return "".join(out)
+
+
+def render_markdown(text: str) -> str:
+    """The Markdown our changelogs use: headings, nested lists, paragraphs, and inline code, links and bold.
+
+    The source is escaped and markup comes only from those patterns, so anything else shows as text.
+    """
+    out: list[str] = []
+    lists: list[tuple[int, str]] = []  # open lists, outermost first: (indent, tag)
+    para: list[str] = []
+    blank = False
+
+    def flush() -> None:
+        if para:
+            body = inline(" ".join(para))
+            out.append(body if lists else f"<p>{body}</p>")
+            para.clear()
+
+    def close_lists(indent: int = -1) -> None:
+        while lists and lists[-1][0] > indent:
+            out.append(f"</li></{lists.pop()[1]}>")
+
+    for line in text.expandtabs(4).splitlines():
+        stripped = line.strip()
+        heading, item = HEADING.match(stripped), ITEM.match(line)
+        if not stripped:
+            flush()
+        elif heading:
+            flush()
+            close_lists()
+            n = len(heading[1])
+            out.append(f"<h{n}>{inline(heading[2])}</h{n}>")
+        elif item:
+            flush()
+            indent, tag = len(item[1]), "ol" if item[2][0].isdigit() else "ul"
+            close_lists(indent)
+            if lists and lists[-1] == (indent, tag):
+                out.append("</li><li>")
+            else:
+                close_lists(indent - 1)  # a list of the other kind at this indent
+                out.append(f"<{tag}><li>")
+                lists.append((indent, tag))
+            para.append(item[3])
+        else:
+            # Text right under an item continues it; after a blank line it starts a paragraph
+            if blank:
+                close_lists()
+            para.append(stripped)
+        blank = not stripped
+    flush()
+    close_lists()
+    return "\n".join(out)
+
+
+def crumbs(path: str) -> str:
+    """Links to every folder above a folder prefix or file key."""
+    parts = path.rstrip("/").split("/") if path else []
+    links = ['<a href="/">downloads</a>'] + [
+        f'<a href="/{quote("".join(p + "/" for p in parts[:i + 1]))}">{escape(parts[i])}</a>' for i in range(len(parts) - 1)]
+    if parts:
+        links.append(f"<span>{escape(parts[-1])}</span>")
+    return "<span>/</span>".join(links)
+
+
+def doc_page(template: Template, key: str, text: str) -> bytes:
+    name = posixpath.basename(key)
+    body = (f'<div class="actions"><a class="btn" href="{quote(name)}" download>Download</a></div>\n'
+            f'<article class="doc">\n{render_markdown(text)}\n</article>')
+    return template.substitute(title=escape(key), heading=escape(name), crumbs=crumbs(key), body=body).encode()
+
+
 def page(template: Template, prefix: str, dirs: list[tuple[str, str, str]], files: list[dict],
          sums: dict[str, str]) -> bytes:
     """One folder's index; dirs are (name, newest change inside, badge)."""
-    parts = prefix.rstrip("/").split("/") if prefix else []
-    crumbs = ['<a href="/">downloads</a>'] + [
-        f'<a href="/{quote("".join(p + "/" for p in parts[:i + 1]))}">{escape(parts[i])}</a>' for i in range(len(parts) - 1)]
-    if parts:
-        crumbs.append(f"<span>{escape(parts[-1])}</span>")
-
     rows = []
     if prefix:
         rows.append('<li class="row dir"><a class="name" href="../"><svg class="icon"><use href="#i-up"/></svg>'
@@ -246,24 +344,34 @@ def page(template: Template, prefix: str, dirs: list[tuple[str, str, str]], file
     for f in files:
         name = f["Key"][len(prefix):]
         sha = sums.get(name)
-        checksum = (f'<div class="sha"><span class="mono">sha256 {sha[:12]}…{sha[-12:]}</span>'
-                    f'<button type="button" data-sha="{sha}">Copy</button></div>') if sha else ""
+        href = quote(name)
+        sub = []
+        if sha:
+            sub.append(f'<span class="mono">sha256 {sha[:12]}…{sha[-12:]}</span>'
+                       f'<button type="button" class="btn" data-sha="{sha}">Copy</button>')
+        if name.endswith(".md"):
+            # The row opens the rendered page, so the raw file gets its own link
+            sub.append(f'<a class="btn" href="{href}" download>Download</a>')
+            href = quote(rendered(name))
         rows.append(
-            f'<li class="row file"><a class="name" href="{quote(name)}"><svg class="icon"><use href="#i-file"/></svg>'
+            f'<li class="row file"><a class="name" href="{href}"><svg class="icon"><use href="#i-file"/></svg>'
             f'<span class="label mono">{escape(name)}</span></a><span class="meta size">{human_size(f["Size"])}</span>'
-            f'<span class="meta date">{day(f.get("LastModified", ""))}</span>{checksum}</li>')
+            f'<span class="meta date">{day(f.get("LastModified", ""))}</span>'
+            f'{f"""<div class="sub">{"".join(sub)}</div>""" if sub else ""}</li>')
     if not dirs and not files:
         rows.append('<li class="empty">Nothing published here yet.</li>')
 
-    heading = parts[-1] if parts else "Downloads"
-    return template.substitute(title=escape(heading), heading=escape(heading),
-                               crumbs="<span>/</span>".join(crumbs), rows="\n".join(rows)).encode()
+    heading = prefix.rstrip("/").split("/")[-1] if prefix else "Downloads"
+    body = '<ul class="list">\n' + "\n".join(rows) + "\n</ul>"
+    return template.substitute(title=escape(heading), heading=escape(heading), crumbs=crumbs(prefix), body=body).encode()
 
 
-def build_site(objects: list[dict], sums: dict[str, dict[str, str]], badges: dict[str, str]) -> dict[str, bytes]:
-    """Index pages and manifest for the given objects.
+def build_site(objects: list[dict], sums: dict[str, dict[str, str]], badges: dict[str, str],
+               docs: dict[str, str]) -> dict[str, bytes]:
+    """Index pages, rendered Markdown and manifest for the given objects.
 
-    sums maps a folder prefix to its SHA256SUMS entries, badges a folder prefix to the label shown on its row.
+    sums maps a folder prefix to its SHA256SUMS entries, badges a folder prefix to the label shown on its row,
+    docs each .md file's key to its text.
     """
     sizes = {o["Key"]: o["Size"] for o in objects}
     manifest = {"files": {prefix + name: {"sha256": digest, "size": sizes[prefix + name]}
@@ -291,6 +399,8 @@ def build_site(objects: list[dict], sums: dict[str, dict[str, str]], badges: dic
         listed = sorted(files.get(prefix, []), key=lambda f: (posixpath.basename(f["Key"]) in (SUMS, "VERSION"), natural(f["Key"])))
         subdirs = [(d, newest.get(prefix + d + "/", ""), badges.get(prefix + d + "/", "")) for d in sort_dirs(dirs[prefix])]
         site[prefix + "index.html"] = page(template, prefix, subdirs, listed, sums.get(prefix, {}))
+    for key, text in docs.items():
+        site[rendered(key)] = doc_page(template, key, text)
     return site
 
 
@@ -306,10 +416,16 @@ def index() -> None:
         objects = listed()
         snapshot = content(objects)
         sources = [o for o in objects if not generated(o["Key"])]
-        sums = {key[:-len(SUMS)]: parse_sums(get(key)) for key, _ in snapshot if posixpath.basename(key) == SUMS}
-        latest = {key[:-len("VERSION")]: get(key).decode().strip() for key, _ in snapshot if key.endswith("/latest/VERSION")}
+        wanted = [key for key, _ in snapshot
+                  if posixpath.basename(key) == SUMS or key.endswith("/latest/VERSION") or key.endswith(".md")]
+        # Each get starts the aws CLI, so fetch in parallel
+        with ThreadPoolExecutor(8) as pool:
+            bodies = dict(zip(wanted, pool.map(get, wanted)))
+        sums = {key[:-len(SUMS)]: parse_sums(data) for key, data in bodies.items() if posixpath.basename(key) == SUMS}
+        latest = {key[:-len("VERSION")]: data.decode().strip() for key, data in bodies.items() if key.endswith("/latest/VERSION")}
+        docs = {key: data.decode(errors="replace") for key, data in bodies.items() if key.endswith(".md")}
         etags = {o["Key"]: o["ETag"].strip('"') for o in objects}
-        for key, data in sorted(build_site(sources, sums, latest).items()):
+        for key, data in sorted(build_site(sources, sums, latest, docs).items()):
             if etags.get(key) != hashlib.md5(data).hexdigest():
                 put(key, data, MUTABLE)
         if content(listed()) == snapshot:
