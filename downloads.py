@@ -448,8 +448,8 @@ def build_site(objects: list[dict], sums: dict[str, dict[str, str]], badges: dic
             child = parent + parts[i] + "/"
             dirs.setdefault(parent, set()).add(parts[i])
             dirs.setdefault(child, set())
-            # Correcting notes isn't a release, so it leaves the folder's date alone
-            if parts[-1] != NOTES:
+            # Date a folder by its release files: notes get corrected, and SHA256SUMS was rewritten when notes left it
+            if parts[-1] not in (NOTES, SUMS):
                 newest[child] = max(newest.get(child, ""), o.get("LastModified", ""))
         files.setdefault(posixpath.dirname(o["Key"]) + "/" if "/" in o["Key"] else "", []).append(o)
 
