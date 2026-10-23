@@ -4,15 +4,18 @@
 Usage: downloads.py publish DIR PREFIX [--exclude GLOB]...   upload DIR to PREFIX/, once
        downloads.py release SRC DEST                          copy published folder SRC/ (a draft) to DEST/, once
        downloads.py promote SRC DEST                          copy release folder SRC/ to DEST/ under fixed names
-       downloads.py put FILE KEY                              upload one file that changes in place, e.g. a changelog
+       downloads.py put FILE KEY                              upload one file that changes in place
+       downloads.py notes FILE PREFIX                         publish changelog FILE as PREFIX/CHANGELOG.md and each published version's section
        downloads.py index                                     rewrite the folder pages, each .md rendered beside it as .html, and the manifest
 
 DIR must hold a SHA256SUMS covering every file in it; --exclude leaves matching files
-and their lines out. promote writes a VERSION file holding SRC's last path segment.
+and their lines out. A CHANGELOG.md in DIR is the release's notes: it is published
+outside SHA256SUMS, whether listed there or not. promote writes a VERSION file holding
+SRC's last path segment.
 
 The site is an S3 bucket behind CloudFront, which serves <dir>/index.html for <dir>/.
-Release folders are written once and cached for a year. latest/, the indexes and the
-manifest change in place, so they are cached for a minute instead of being invalidated.
+Release files are written once and cached for a year. Release notes, latest/, the indexes
+and the manifest change in place, so they are cached for a minute instead of being invalidated.
 Needs the aws CLI with credentials that can write the bucket named in DOWNLOADS_BUCKET.
 """
 
@@ -37,6 +40,8 @@ from urllib.parse import quote
 IMMUTABLE = "public, max-age=31536000, immutable"
 MUTABLE = "public, max-age=60"
 SUMS = "SHA256SUMS"
+# Notes are corrected after a release, so they stay out of SHA256SUMS and can be replaced
+NOTES = "CHANGELOG.md"
 TEMPLATE = Path(__file__).with_name("page.html")
 DESCRIPTIONS = {
     "firmware/": "PX4 firmware for ARK CAN nodes and flight controllers",
@@ -66,6 +71,10 @@ def list_objects(prefix: str = "") -> list[dict]:
 
 def get(key: str) -> bytes:
     return aws("s3", "cp", f"s3://{bucket()}/{key}", "-")
+
+
+def exists(key: str) -> bool:
+    return any(o["Key"] == key for o in list_objects(key))
 
 
 def content_type(name: str) -> str:
@@ -135,8 +144,8 @@ def publish(src: Path, prefix: str, exclude: list[str]) -> None:
     def kept(name: str) -> bool:
         return not any(fnmatch.fnmatch(name, g) for g in exclude)
 
-    sums = {n: d for n, d in parse_sums((src / SUMS).read_bytes()).items() if kept(n)}
-    files = {p.name: p for p in src.iterdir() if p.is_file() and p.name != SUMS and kept(p.name)}
+    sums = {n: d for n, d in parse_sums((src / SUMS).read_bytes()).items() if kept(n) and n != NOTES}
+    files = {p.name: p for p in src.iterdir() if p.is_file() and p.name not in (SUMS, NOTES) and kept(p.name)}
     if set(files) != set(sums):
         sys.exit(f"{SUMS} lists {sorted(sums)}, files are {sorted(files)}")
     if any(name.endswith(".html") for name in files):
@@ -147,8 +156,15 @@ def publish(src: Path, prefix: str, exclude: list[str]) -> None:
 
     for name, path in sorted(files.items()):
         copy(str(path), prefix + name, IMMUTABLE, create_only=True)
+    if (src / NOTES).is_file() and kept(NOTES):
+        copy(str(src / NOTES), prefix + NOTES, MUTABLE)
     # Last, so a folder with SHA256SUMS is complete
     put(prefix + SUMS, format_sums(sums), IMMUTABLE)
+
+
+def release_files(prefix: str) -> dict[str, str]:
+    # Folders published before notes left SHA256SUMS still list them
+    return {n: d for n, d in parse_sums(get(prefix + SUMS)).items() if n != NOTES}
 
 
 def release(src: str, dest: str) -> None:
@@ -159,9 +175,11 @@ def release(src: str, dest: str) -> None:
         sys.exit(f"{dest} already exists; a published release is never replaced")
 
     # SRC was verified on publish and never changes, so copy server side
-    sums = parse_sums(get(src + SUMS))
+    sums = release_files(src)
     for name in sorted(sums):
         copy(f"s3://{bucket()}/{src}{name}", dest + name, IMMUTABLE, create_only=True)
+    if exists(src + NOTES):
+        copy(f"s3://{bucket()}/{src}{NOTES}", dest + NOTES, MUTABLE)
     put(dest + SUMS, format_sums(sums), IMMUTABLE)
 
 
@@ -182,20 +200,60 @@ def promote(src: str, dest: str) -> None:
         sys.exit(f"{src} is not published")
 
     # Release folders were verified on publish and never change, so copy server side
-    sums = parse_sums(get(src + SUMS))
+    sums = release_files(src)
     renamed = {fixed_name(n): (n, d) for n, d in sums.items()}
-    if len(renamed) != len(sums):
+    if len(renamed) != len(sums) or NOTES in renamed:
         sys.exit(f"fixed names collide: {sorted(sums)}")
-    keep = set(renamed) | {SUMS, "VERSION"}
+    notes = exists(src + NOTES)
+    keep = set(renamed) | {SUMS, "VERSION"} | ({NOTES} if notes else set())
     stale = [o["Key"] for o in list_objects(dest) if o["Key"][len(dest):] not in keep]
 
     for new, (old, _) in sorted(renamed.items()):
         copy(f"s3://{bucket()}/{src}{old}", dest + new, MUTABLE)
+    if notes:
+        copy(f"s3://{bucket()}/{src}{NOTES}", dest + NOTES, MUTABLE)
     put(dest + SUMS, format_sums({n: d for n, (_, d) in renamed.items()}), MUTABLE)
     put(dest + "VERSION", f"{posixpath.basename(src.rstrip('/'))}\n".encode(), MUTABLE)
     for key in stale:
         aws("s3api", "delete-object", "--bucket", bucket(), "--key", key)
         print(f"deleted {key}")
+
+
+def section_version(block: str) -> str:
+    words = block.split()
+    return words[1] if len(words) > 1 else ""
+
+
+def notes(src: Path, prefix: str) -> None:
+    prefix = folder(prefix)
+    etags = {o["Key"]: o["ETag"].strip('"') for o in list_objects(prefix)}
+    folders = {key[len(prefix):-len("/" + SUMS)] for key in etags
+               if key.endswith("/" + SUMS) and key[len(prefix):].count("/") == 1}
+    if not folders - {"latest"}:
+        print(f"no releases under {prefix}, skipped")
+        return
+
+    # Split before each '## <version> ...' heading, keeping each section byte for byte as the release workflow cut it
+    head, *blocks = re.split(r"(?m)^(?=## )", src.read_text())
+    sections = {section_version(b): b for b in blocks}
+    if not folders & set(sections):
+        sys.exit(f"{src} has no '## <version>' section for any of {sorted(folders)}")
+    # Notes merged ahead of their release wait for its folder; history from before the site has none and stays
+    while section_version(blocks[0]) not in folders:
+        blocks.pop(0)
+
+    def update(key: str, text: str) -> None:
+        data = text.encode()
+        if etags.get(key) != hashlib.md5(data).hexdigest():
+            put(key, data, MUTABLE)
+
+    for version in sorted(folders & set(sections)):
+        update(f"{prefix}{version}/{NOTES}", sections[version])
+    if "latest" in folders:
+        version = get(prefix + "latest/VERSION").decode().strip()
+        if version in sections:
+            update(f"{prefix}latest/{NOTES}", sections[version])
+    update(prefix + NOTES, head + "".join(blocks))
 
 
 def generated(key: str) -> bool:
@@ -390,7 +448,9 @@ def build_site(objects: list[dict], sums: dict[str, dict[str, str]], badges: dic
             child = parent + parts[i] + "/"
             dirs.setdefault(parent, set()).add(parts[i])
             dirs.setdefault(child, set())
-            newest[child] = max(newest.get(child, ""), o.get("LastModified", ""))
+            # Correcting notes isn't a release, so it leaves the folder's date alone
+            if parts[-1] != NOTES:
+                newest[child] = max(newest.get(child, ""), o.get("LastModified", ""))
         files.setdefault(posixpath.dirname(o["Key"]) + "/" if "/" in o["Key"] else "", []).append(o)
 
     template = Template(TEMPLATE.read_text())
@@ -447,6 +507,9 @@ def main() -> None:
     p = sub.add_parser("put")
     p.add_argument("file", type=Path)
     p.add_argument("key")
+    p = sub.add_parser("notes")
+    p.add_argument("file", type=Path)
+    p.add_argument("prefix")
     sub.add_parser("index")
     args = parser.parse_args()
     if args.command == "publish":
@@ -457,6 +520,8 @@ def main() -> None:
         promote(args.src, args.dest)
     elif args.command == "put":
         put(args.key, args.file.read_bytes(), MUTABLE)
+    elif args.command == "notes":
+        notes(args.file, args.prefix)
     else:
         index()
 

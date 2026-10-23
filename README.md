@@ -6,7 +6,8 @@ Tooling for https://downloads.arkelectron.com, an S3 bucket behind CloudFront.
 
 | Path | Contents | Cached |
 |---|---|---|
-| `<folder>/<product>/<version>/` | A release's files, its `CHANGELOG.md` and its `SHA256SUMS`. Written once, never replaced. | 1 year |
+| `<folder>/<product>/<version>/` | A release's files and its `SHA256SUMS`. Written once, never replaced. | 1 year |
+| `<folder>/<product>/<version>/CHANGELOG.md` | The release's notes, outside `SHA256SUMS` so they can be corrected | 60 s |
 | `<folder>/<product>/latest/` | The promoted release under fixed names, plus `VERSION` | 60 s |
 | `<folder>/<product>/CHANGELOG.md` | The product's release notes, every version, newest first | 60 s |
 | `manifest.json` | Every file listed in a `SHA256SUMS`, with its sha256 and size | 60 s |
@@ -47,7 +48,7 @@ jobs:
 
 ## Changelogs
 
-Every product release carries its notes twice: the version's own section as `CHANGELOG.md` in its version folder, listed in `SHA256SUMS` like any other file, and the product's whole history as `<folder>/<product>/CHANGELOG.md`, uploaded with `put` when the release is promoted. The product's GitBook release notes are a copy of the whole history. `index` renders every listed `.md` to a `.html` beside it, which the folder pages open; the `.md` stays plain text and is the page's Download button. The renderer handles headings, lists, paragraphs, inline code, links (`http`, `https` and relative only) and bold, with no JavaScript; any other syntax shows as text. Every `.html` on the site is generated, so `publish` refuses one.
+Every product release carries its notes twice: the version's own section as `CHANGELOG.md` in its version folder (and in `latest/`), and the product's whole history as `<folder>/<product>/CHANGELOG.md`. Notes are not release files: `publish` uploads a `CHANGELOG.md` outside `SHA256SUMS` even when the directory's `SHA256SUMS` lists it, so they can be corrected without touching the release. `notes FILE PREFIX` publishes the history and copies each `## <version> …` section into that version's folder and into `latest/`, writing only what changed. Sections above the newest published version are held back until their folder exists. Correcting a release's notes is editing the history and running `notes` again. The product's GitBook release notes are a copy of the whole history. `index` renders every listed `.md` to a `.html` beside it, which the folder pages open; the `.md` stays plain text and is the page's Download button. The renderer handles headings, lists, paragraphs, inline code, links (`http`, `https` and relative only) and bold, with no JavaScript; any other syntax shows as text. Every `.html` on the site is generated, so `publish` refuses one.
 
 ## Drafts
 
@@ -58,7 +59,7 @@ downloads.py publish <dir> dev/<folder>/<product>/<version>               # the 
 downloads.py put VERSION dev/<folder>/<product>/draft/VERSION              # points at the newest draft
 downloads.py release dev/<folder>/<product>/<version> <folder>/<product>/<version>   # after validation
 downloads.py promote <folder>/<product>/<version> <folder>/<product>/latest
-downloads.py put CHANGELOG.md <folder>/<product>/CHANGELOG.md
+downloads.py notes CHANGELOG.md <folder>/<product>
 downloads.py index
 ```
 
