@@ -18,7 +18,7 @@ Folders: `firmware/` (private_px4), `jetson/` (ark_jetson_kernel), `pi/` (ark_pi
 
 ## Releasing
 
-Every release is born a draft. The tag's build publishes it to `dev/`, the bench tests it, and promote copies those exact bytes into the release folder.
+Every release is born a draft. The tag's build publishes it to `dev/`, the bench tests it, and promote copies those exact bytes into the release folder. A release too simple to need the bench is promoted as soon as its tag build finishes.
 
 | Step | Where | Commands |
 |---|---|---|
