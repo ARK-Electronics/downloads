@@ -16,7 +16,21 @@ Tooling for https://downloads.arkelectron.com, an S3 bucket behind CloudFront.
 
 Folders: `firmware/` (private_px4), `jetson/` (ark_jetson_kernel), `pi/` (ark_pi_image), `dev/` (dev builds, below).
 
-## Publishing from a workflow
+## Releasing
+
+Every release is born a draft. The tag's build publishes it to `dev/`, the bench tests it, and promote copies those exact bytes into the release folder. A release too simple to need the bench is promoted as soon as its tag build finishes.
+
+| Step | Where | Commands |
+|---|---|---|
+| Tag build | the tag's push workflow | `publish <dir> dev/<folder>/<product>/<version>`, then `put VERSION dev/<folder>/<product>/draft/VERSION` |
+| Bench test | ark-bench in `--debug` | The product that writes or flashes the image offers the newest draft, the one `draft/VERSION` names |
+| Promote | a `workflow_dispatch` taking the tag | `release dev/<folder>/<product>/<version> <folder>/<product>/<version>`, `promote <folder>/<product>/<version> <folder>/<product>/latest`, `notes` if the product keeps a changelog, then `index` |
+
+`release` copies server side, so the promoted files are byte for byte the draft that passed. A draft is unlisted like any dev build and expires 90 days after upload. `draft/VERSION` can name a version that is already promoted. `publish` checks every file against the directory's `SHA256SUMS` and refuses a version that already exists. `--exclude '*.elf'` keeps files off the site.
+
+ark_jetson_kernel (`build.yml`, `promote.yml`) and ark_pi_image (`release.yml`, `promote.yml`) release this way, so copy them. private_px4 tags still publish straight to `firmware/<product>/<version>/`.
+
+Both workflows' jobs need this setup:
 
 ```yaml
 jobs:
@@ -38,32 +52,12 @@ jobs:
           mask-aws-account-id: true
       - env:
           DOWNLOADS_BUCKET: ${{ vars.DOWNLOADS_BUCKET }}
-        run: |
-          downloads/downloads.py publish <dir> <folder>/<product>/<version>
-          downloads/downloads.py promote <folder>/<product>/<version> <folder>/<product>/latest
-          downloads/downloads.py index
+        run: downloads/downloads.py ...
 ```
-
-`publish` checks every file against the directory's `SHA256SUMS` and refuses a version that already exists. `--exclude '*.elf'` keeps files off the site.
 
 ## Changelogs
 
 Every product release carries its notes twice: the version's own section as `CHANGELOG.md` in its version folder (and in `latest/`), and the product's whole history as `<folder>/<product>/CHANGELOG.md`. Notes are not release files: `publish` uploads a `CHANGELOG.md` outside `SHA256SUMS` even when the directory's `SHA256SUMS` lists it, so they can be corrected without touching the release. `notes FILE PREFIX` publishes the history and copies each `## <version> …` section into that version's folder and into `latest/`, writing only what changed. Sections above the newest published version are held back until their folder exists. Correcting a release's notes is editing the history and running `notes` again. The product's GitBook release notes are a copy of the whole history. `index` renders every listed `.md` to a `.html` beside it, which the folder pages open; the `.md` stays plain text and is the page's Download button. The renderer handles headings, lists, paragraphs, inline code, links (`http`, `https` and relative only) and bold, with no JavaScript; any other syntax shows as text. Every `.html` on the site is generated, so `publish` refuses one.
-
-## Drafts
-
-A release can be born a draft and promoted after validation without rebuilding:
-
-```bash
-downloads.py publish <dir> dev/<folder>/<product>/<version>               # the tag build
-downloads.py put VERSION dev/<folder>/<product>/draft/VERSION              # points at the newest draft
-downloads.py release dev/<folder>/<product>/<version> <folder>/<product>/<version>   # after validation
-downloads.py promote <folder>/<product>/<version> <folder>/<product>/latest
-downloads.py notes CHANGELOG.md <folder>/<product>
-downloads.py index
-```
-
-`release` copies server side, so the promoted files are byte for byte the draft that was validated. A draft is unlisted like any dev build and expires 90 days after upload; `draft/VERSION` can name a version that is already promoted.
 
 ## Adding a repo
 
