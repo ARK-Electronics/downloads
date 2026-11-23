@@ -1,8 +1,9 @@
 #!/bin/bash
 # Lets one repo's workflows in its "downloads" GitHub environment publish under one top-level folder and its dev/ drafts.
-# Rerunning it updates an existing role's policy.
+# Rerunning it updates an existing role's trust and policy.
 # Usage: create_publish_role.sh <owner/repo> <folder> <bucket>, e.g. ARK-Electronics/ark_jetson_kernel jetson <bucket>
-# Prints the role ARN, which goes in the repo's downloads environment as AWS_ROLE_ARN.
+# Needs gh logged in, for the repo's OIDC subject. Prints the role ARN, which goes in the repo's downloads
+# environment as AWS_ROLE_ARN.
 set -euo pipefail
 repo=$1
 folder=$2
@@ -10,6 +11,8 @@ bucket=$3
 role=github-${repo#*/}-downloads
 export AWS_REGION=us-east-1
 account=$(aws sts get-caller-identity --query Account --output text)
+# Newer repos sign tokens with an immutable subject that names the owner and repo by ID as well.
+subject=$(gh api "repos/$repo/actions/oidc/customization/sub" --jq .sub_claim_prefix):environment:downloads
 
 provider=arn:aws:iam::$account:oidc-provider/token.actions.githubusercontent.com
 if ! aws iam get-open-id-connect-provider --open-id-connect-provider-arn "$provider" >/dev/null 2>&1; then
@@ -17,10 +20,7 @@ if ! aws iam get-open-id-connect-provider --open-id-connect-provider-arn "$provi
     --client-id-list sts.amazonaws.com --tags Key=Project,Value=downloads >/dev/null
 fi
 
-if ! aws iam get-role --role-name "$role" >/dev/null 2>&1; then
-  aws iam create-role --role-name "$role" --tags Key=Project,Value=downloads \
-    --description "$repo workflows publish to downloads.arkelectron.com/$folder" \
-    --assume-role-policy-document "{
+trust="{
   \"Version\": \"2012-10-17\",
   \"Statement\": [{
     \"Effect\": \"Allow\",
@@ -28,10 +28,16 @@ if ! aws iam get-role --role-name "$role" >/dev/null 2>&1; then
     \"Action\": \"sts:AssumeRoleWithWebIdentity\",
     \"Condition\": {\"StringEquals\": {
       \"token.actions.githubusercontent.com:aud\": \"sts.amazonaws.com\",
-      \"token.actions.githubusercontent.com:sub\": \"repo:$repo:environment:downloads\"
+      \"token.actions.githubusercontent.com:sub\": \"$subject\"
     }}
   }]
-}" >/dev/null
+}"
+if aws iam get-role --role-name "$role" >/dev/null 2>&1; then
+  aws iam update-assume-role-policy --role-name "$role" --policy-document "$trust"
+else
+  aws iam create-role --role-name "$role" --tags Key=Project,Value=downloads \
+    --description "$repo workflows publish to downloads.arkelectron.com/$folder" \
+    --assume-role-policy-document "$trust" >/dev/null
 fi
 
 aws iam put-role-policy --role-name "$role" --policy-name publish --policy-document "{
